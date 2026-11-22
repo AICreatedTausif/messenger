@@ -1,24 +1,30 @@
 /* ============================================================
-   chat.js — Messenger
-   Conversations, messages and photo sending.
+   chat.js — Messenger (Firebase version)
+   Conversations and messages in Firebase Realtime Database.
    - Chat list with search, unread badges, online status
-   - Text messages with time + seen ticks
+   - Text messages with time + seen ticks (live via RTDB)
    - Photos: picked file -> resized -> Base64 (data URL) -> sent
-     inside the message (this is the "base method" the user asked
-     for). No server needed; the Base64 string IS the photo data.
+     inside the message (the "base method"). Base64 string is
+     stored in the Realtime Database message itself.
    - Typing indicator + demo auto-reply
    - New chat modal, emoji picker, photo lightbox
-   Data lives in localStorage for now. When Firebase is connected,
-   these storage functions are swapped for Firestore/Storage —
-   see js/firebase-config.js.
+   Data path: /chats/{myUid}/{peerId}/{messageId}.
+   The old localStorage chats are gone. Demo contacts stay
+   local (they are demo people, not real Firebase users).
+   NOTE: Realtime Database rules must allow this user to read
+   and write /chats/{uid} in the Firebase console, or the
+   listener will report a permission error.
    ============================================================ */
 
-const CHATS_KEY = "messenger_chats";
 const PEOPLE_KEY = "messenger_people";
 let currentChatId = null;
 let pendingPhoto = null; // Base64 data URL waiting to be sent
+let chatCache = {};      // { peerId: { msgId: message } }
+let myUid = null;
+let chatListenerOn = false;
+let seededThisSession = false;
 
-/* ---------- demo people ---------- */
+/* ---------- demo people (local) ---------- */
 function seedPeople() {
   let people = null;
   try { people = JSON.parse(localStorage.getItem(PEOPLE_KEY)); } catch (e) {}
@@ -35,48 +41,71 @@ function seedPeople() {
 }
 function getPeople() { return seedPeople(); }
 
-/* ---------- chats storage ---------- */
-function loadChats() {
-  try { return JSON.parse(localStorage.getItem(CHATS_KEY)) || {}; }
-  catch (e) { return {}; }
+/* ---------- Realtime Database access ---------- */
+function chatsRef() {
+  return firebase.database().ref("chats/" + myUid);
 }
-function saveChats(chats) { localStorage.setItem(CHATS_KEY, JSON.stringify(chats)); }
+function loadChats() { return chatCache; }
+function saveChats(chats) {
+  chatCache = chats;
+  if (myUid) chatsRef().set(chats);
+}
 
-function seedChats() {
-  const chats = loadChats();
-  if (Object.keys(chats).length) return chats;
+function attachChatListener() {
+  if (!myUid || chatListenerOn) return;
+  chatListenerOn = true;
+  chatsRef().on("value",
+    (snap) => {
+      chatCache = snap.val() || {};
+      if (Object.keys(chatCache).length === 0 && !seededThisSession) {
+        seededThisSession = true;
+        seedChatsToFirebase();
+        return;
+      }
+      const q = document.getElementById("searchInput");
+      renderChatList(q ? q.value : "");
+      if (currentChatId) renderMessages();
+    },
+    (error) => {
+      showToast("Firebase Database-এর অনুমতি নেই — Firebase console-এ Realtime Database rules ঠিক করতে হবে।");
+    }
+  );
+}
+
+function seedChatsToFirebase() {
   const now = Date.now();
   const seeded = {
-    rahim: [
-      { id: "m1", from: "peer", type: "text", text: "আসসালামু আলাইকুম, কেমন আছো?", time: new Date(now - 1000 * 60 * 42).toISOString(), seen: true },
-      { id: "m2", from: "me", type: "text", text: "ওয়ালাইকুম আসসালাম, আলহামদুলিল্লাহ ভালো। তুমি?", time: new Date(now - 1000 * 60 * 40).toISOString(), seen: true },
-      { id: "m3", from: "peer", type: "text", text: "আলহামদুলিল্লাহ! কালকের ভিডিওটা দেখেছো?", time: new Date(now - 1000 * 60 * 5).toISOString(), seen: true }
-    ],
-    karim: [
-      { id: "m1", from: "peer", type: "text", text: "ভাই, নতুন ফোনের ছবিগুলো পাঠালাম।", time: new Date(now - 1000 * 60 * 60 * 2).toISOString(), seen: true }
-    ],
-    sakib: [
-      { id: "m1", from: "me", type: "text", text: "DSU ভিডিওটা কবে আসবে?", time: new Date(now - 1000 * 60 * 60 * 5).toISOString(), seen: true },
-      { id: "m2", from: "peer", type: "text", text: "বুধবারে আসবে ইনশাআল্লাহ।", time: new Date(now - 1000 * 60 * 60 * 4).toISOString(), seen: true }
-    ],
-    tania: [
-      { id: "m1", from: "peer", type: "text", text: "তোমার নতুন সাইটটা দারুণ হয়েছে!", time: new Date(now - 1000 * 60 * 60 * 26).toISOString(), seen: false }
-    ],
-    nusrat: [
-      { id: "m1", from: "peer", type: "text", text: "মদিনার ভিডিওটা খুব সুন্দর হয়েছে।", time: new Date(now - 1000 * 60 * 60 * 30).toISOString(), seen: true }
-    ]
+    rahim: {
+      m1: { id: "m1", from: "peer", type: "text", text: "আসসালামু আলাইকুম, কেমন আছো?", time: new Date(now - 1000 * 60 * 42).toISOString(), seen: true },
+      m2: { id: "m2", from: "me", type: "text", text: "ওয়ালাইকুম আসসালাম, আলহামদুলিল্লাহ ভালো। তুমি?", time: new Date(now - 1000 * 60 * 40).toISOString(), seen: true },
+      m3: { id: "m3", from: "peer", type: "text", text: "আলহামদুলিল্লাহ! কালকের ভিডিওটা দেখেছো?", time: new Date(now - 1000 * 60 * 5).toISOString(), seen: true }
+    },
+    karim: {
+      m1: { id: "m1", from: "peer", type: "text", text: "ভাই, নতুন ফোনের ছবিগুলো পাঠালাম।", time: new Date(now - 1000 * 60 * 60 * 2).toISOString(), seen: true }
+    },
+    sakib: {
+      m1: { id: "m1", from: "me", type: "text", text: "DSU ভিডিওটা কবে আসবে?", time: new Date(now - 1000 * 60 * 60 * 5).toISOString(), seen: true },
+      m2: { id: "m2", from: "peer", type: "text", text: "বুধবারে আসবে ইনশাআল্লাহ।", time: new Date(now - 1000 * 60 * 60 * 4).toISOString(), seen: true }
+    },
+    tania: {
+      m1: { id: "m1", from: "peer", type: "text", text: "তোমার নতুন সাইটটা দারুণ হয়েছে!", time: new Date(now - 1000 * 60 * 60 * 26).toISOString(), seen: false }
+    },
+    nusrat: {
+      m1: { id: "m1", from: "peer", type: "text", text: "মদিনার ভিডিওটা খুব সুন্দর হয়েছে।", time: new Date(now - 1000 * 60 * 60 * 30).toISOString(), seen: true }
+    }
   };
-  saveChats(seeded);
-  return seeded;
+  chatsRef().set(seeded);
 }
 
+function chatMessages(peerId) {
+  const obj = chatCache[peerId] || {};
+  return Object.values(obj).sort((a, b) => new Date(a.time) - new Date(b.time));
+}
 function getUnreadCount(chatId) {
-  const chats = loadChats();
-  return (chats[chatId] || []).filter(m => m.from === "peer" && !m.seen).length;
+  return chatMessages(chatId).filter(m => m.from === "peer" && !m.seen).length;
 }
 function lastMessage(chatId) {
-  const chats = loadChats();
-  const list = chats[chatId] || [];
+  const list = chatMessages(chatId);
   return list[list.length - 1] || null;
 }
 
@@ -130,10 +159,11 @@ function openChat(peerId) {
   const peer = people.find(p => p.id === peerId);
   if (!peer) return;
 
-  // Mark peer messages as seen.
-  const chats = loadChats();
-  (chats[peerId] || []).forEach(m => { if (m.from === "peer") m.seen = true; });
-  saveChats(chats);
+  // Mark peer messages as seen (writes back to Firebase).
+  const msgs = chatCache[peerId] || {};
+  let changed = false;
+  Object.values(msgs).forEach(m => { if (m.from === "peer" && !m.seen) { m.seen = true; changed = true; } });
+  if (changed && myUid) chatsRef().child(peerId).set(msgs);
 
   document.getElementById("emptyState").classList.add("hidden");
   document.getElementById("chatWindow").classList.remove("hidden");
@@ -149,8 +179,7 @@ function openChat(peerId) {
 function renderMessages() {
   const box = document.getElementById("messagesBox");
   if (!box || !currentChatId) return;
-  const chats = loadChats();
-  const list = chats[currentChatId] || [];
+  const list = chatMessages(currentChatId);
   box.innerHTML = "";
   list.forEach(m => {
     const wrap = document.createElement("div");
@@ -170,30 +199,26 @@ function renderMessages() {
   box.scrollTop = box.scrollHeight;
 }
 
-/* ---------- send message ---------- */
+/* ---------- send message (to Firebase) ---------- */
 function sendCurrentMessage() {
-  if (!currentChatId) return;
+  if (!currentChatId || !myUid) return;
   const input = document.getElementById("messageInput");
   const text = input.value.trim();
   if (!text && !pendingPhoto) return;
 
-  const chats = loadChats();
-  if (!chats[currentChatId]) chats[currentChatId] = [];
-  chats[currentChatId].push({
+  const msg = {
     id: uid(),
     from: "me",
     type: pendingPhoto ? "image" : "text",
     text: text || "",
-    img: pendingPhoto || undefined,
+    img: pendingPhoto || "",
     time: new Date().toISOString(),
     seen: false
-  });
-  saveChats(chats);
+  };
+  chatsRef().child(currentChatId).push(msg);
 
   input.value = "";
   clearPhotoPreview();
-  renderMessages();
-  renderChatList(document.getElementById("searchInput").value);
   simulateReply(currentChatId);
 }
 
@@ -204,9 +229,8 @@ function simulateReply(peerId) {
   typing.classList.remove("hidden");
   setTimeout(() => {
     typing.classList.add("hidden");
-    const chats = loadChats();
-    if (!chats[peerId]) chats[peerId] = [];
-    chats[peerId].push({
+    if (!myUid) return;
+    chatsRef().child(peerId).push({
       id: uid(),
       from: "peer",
       type: "text",
@@ -214,9 +238,6 @@ function simulateReply(peerId) {
       time: new Date().toISOString(),
       seen: currentChatId === peerId
     });
-    saveChats(chats);
-    if (currentChatId === peerId) renderMessages();
-    renderChatList(document.getElementById("searchInput").value);
   }, 1400);
 }
 
@@ -282,7 +303,13 @@ function openNewChatModal() {
 /* ---------- wire up ---------- */
 document.addEventListener("DOMContentLoaded", () => {
   seedPeople();
-  seedChats();
+
+  // When Firebase Auth signs a user in, start syncing their chats.
+  firebase.auth().onAuthStateChanged((user) => {
+    myUid = user ? user.uid : null;
+    chatListenerOn = false;
+    attachChatListener();
+  });
 
   document.getElementById("sendBtn").addEventListener("click", sendCurrentMessage);
   document.getElementById("messageInput").addEventListener("keydown", (e) => {
