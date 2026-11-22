@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Messenger — AI Created Tausif</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ==================== AUTH SCREENS ==================== -->
+<div id="authScreen" class="auth-screen">
+  <div class="auth-card">
+    <div class="auth-logo">Messenger</div>
+    <p class="auth-tagline">বন্ধুদের সাথে চ্যাট করুন — টেক্সট আর ছবি, সব এক জায়গায়।</p>
+
+    <!-- Tabs -->
+    <div class="auth-tabs">
+      <button id="tabLogin" class="auth-tab active" type="button">লগইন</button>
+      <button id="tabSignup" class="auth-tab" type="button">সাইন আপ</button>
+    </div>
+
+    <!-- Login form -->
+    <form id="loginForm" class="auth-form">
+      <label>ইমেইল
+        <input id="loginEmail" type="email" placeholder="you@example.com" required>
+      </label>
+      <label>পাসওয়ার্ড
+        <input id="loginPassword" type="password" placeholder="আপনার পাসওয়ার্ড" required>
+      </label>
+      <p id="loginError" class="form-error"></p>
+      <button class="btn-primary" type="submit">লগইন করুন</button>
+      <button id="forgotLink" class="link-btn" type="button">পাসওয়ার্ড ভুলে গেছেন?</button>
+      <div class="divider"><span>অথবা</span></div>
+      <button id="demoLoginBtn" class="btn-demo" type="button">ডেমো অ্যাকাউন্ট দিয়ে ঢুকুন</button>
+      <p class="demo-hint">ডেমো: demo@messenger.app / demo123</p>
+    </form>
+
+    <!-- Signup form -->
+    <form id="signupForm" class="auth-form hidden">
+      <label>আপনার নাম
+        <input id="signupName" type="text" placeholder="যেমন: তাউসিফ" required>
+      </label>
+      <label>ইমেইল
+        <input id="signupEmail" type="email" placeholder="you@example.com" required>
+      </label>
+      <label>পাসওয়ার্ড
+        <input id="signupPassword" type="password" placeholder="কমপক্ষে ৬ অক্ষর" required>
+      </label>
+      <div class="strength-meter">
+        <div id="strengthBar" class="strength-bar"></div>
+        <span id="strengthText" class="strength-text"></span>
+      </div>
+      <label>পাসওয়ার্ড আবার লিখুন
+        <input id="signupConfirm" type="password" placeholder="পাসওয়ার্ড আবার লিখুন" required>
+      </label>
+      <p id="signupError" class="form-error"></p>
+      <button class="btn-primary" type="submit">অ্যাকাউন্ট তৈরি করুন</button>
+    </form>
+
+    <!-- Forgot password form -->
+    <form id="forgotForm" class="auth-form hidden">
+      <p class="form-note">আপনার ইমেইলে ৬ সংখ্যার একটি কোড যাবে (ডেমোতে কোডটি স্ক্রিনেই দেখাবে)।</p>
+      <label>ইমেইল
+        <input id="forgotEmail" type="email" placeholder="you@example.com" required>
+      </label>
+      <button id="sendCodeBtn" class="btn-primary" type="button">কোড পাঠান</button>
+      <div id="resetStep" class="hidden">
+        <label>৬ সংখ্যার কোড
+          <input id="resetCode" type="text" maxlength="6" placeholder="******" inputmode="numeric">
+        </label>
+        <label>নতুন পাসওয়ার্ড
+          <input id="resetPassword" type="password" placeholder="নতুন পাসওয়ার্ড">
+        </label>
+        <p id="resetCodeHint" class="form-note"></p>
+        <p id="forgotError" class="form-error"></p>
+        <button id="resetPasswordBtn" class="btn-primary" type="button">পাসওয়ার্ড বদলান</button>
+      </div>
+      <button id="backToLoginBtn" class="link-btn" type="button">← লগইনে ফিরুন</button>
+    </form>
+  </div>
+</div>
+
+<!-- ==================== APP ==================== -->
+<div id="appScreen" class="app hidden">
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="profile-row">
+      <div id="myAvatar" class="avatar">ত</div>
+      <div class="profile-info">
+        <strong id="myName">আমি</strong>
+        <span id="myStatus">অনলাইন</span>
+      </div>
+      <button id="logoutBtn" class="icon-btn" type="button" title="লগআউট">লগআউট</button>
+    </div>
+    <div class="search-box">
+      <input id="searchInput" type="text" placeholder="চ্যাট খুঁজুন...">
+    </div>
+    <div id="chatList" class="chat-list"></div>
+    <button id="newChatBtn" class="btn-primary new-chat-btn" type="button">+ নতুন চ্যাট</button>
+  </aside>
+
+  <!-- Chat window -->
+  <main class="chat-area">
+    <div id="emptyState" class="empty-state">
+      <div class="empty-icon">💬</div>
+      <h2>একটি চ্যাট বেছে নিন</h2>
+      <p>বাম পাশ থেকে কারো সাথে চ্যাট শুরু করুন, অথবা নতুন চ্যাট তৈরি করুন।</p>
+    </div>
+
+    <div id="chatWindow" class="chat-window hidden">
+      <header class="chat-header">
+        <div id="chatAvatar" class="avatar">র</div>
+        <div class="chat-peer">
+          <strong id="chatName">নাম</strong>
+          <span id="chatPresence">অনলাইন</span>
+        </div>
+      </header>
+
+      <div id="messagesBox" class="messages"></div>
+      <div id="typingIndicator" class="typing hidden">টাইপ করছে...</div>
+
+      <div id="photoPreview" class="photo-preview hidden">
+        <img id="photoPreviewImg" alt="ছবির প্রিভিউ">
+        <button id="photoRemoveBtn" class="icon-btn" type="button">✕</button>
+      </div>
+
+      <div class="composer">
+        <button id="emojiBtn" class="icon-btn" type="button" title="ইমোজি">😊</button>
+        <button id="photoBtn" class="icon-btn" type="button" title="ছবি পাঠান">📷</button>
+        <input id="photoInput" type="file" accept="image/*" hidden>
+        <input id="messageInput" type="text" placeholder="মেসেজ লিখুন..." autocomplete="off">
+        <button id="sendBtn" class="btn-send" type="button">পাঠান</button>
+      </div>
+
+      <div id="emojiPicker" class="emoji-picker hidden">
+        <button type="button">😀</button><button type="button">😂</button><button type="button">😍</button><button type="button">😊</button><button type="button">👍</button><button type="button">🙏</button><button type="button">🎉</button><button type="button">❤️</button><button type="button">🔥</button><button type="button">😢</button><button type="button">😮</button><button type="button">👏</button>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- New chat modal -->
+<div id="newChatModal" class="modal hidden">
+  <div class="modal-card">
+    <h3>নতুন চ্যাট</h3>
+    <div id="peopleList" class="people-list"></div>
+    <button id="closeModalBtn" class="btn-primary" type="button">বন্ধ করুন</button>
+  </div>
+</div>
+
+<!-- Photo lightbox -->
+<div id="lightbox" class="lightbox hidden">
+  <button id="lightboxClose" class="lightbox-close" type="button">✕</button>
+  <img id="lightboxImg" alt="ছবি">
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="js/firebase-config.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/chat.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
