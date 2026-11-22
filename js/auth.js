@@ -1,48 +1,15 @@
 /* ============================================================
-   auth.js — Messenger
-   Full A-to-Z login system (demo grade, browser storage).
-   - Sign up with password strength meter
-   - Login + session
-   - Forgot password with 6-digit code
-   - Demo account
-   NOTE: passwords are stored with a simple demo hash in
-   localStorage. When Firebase is connected, Firebase Auth
-   replaces this whole file — see js/firebase-config.js.
+   auth.js — Messenger (Firebase version)
+   Full A-to-Z login system using Firebase Authentication.
+   - Sign up (email + password, display name, strength meter)
+   - Login + Firebase session (onAuthStateChanged)
+   - Forgot password via Firebase reset email
+   - Demo account (created in Firebase on first use)
+   The old localStorage user store is gone — users now live
+   in Firebase Auth. Config: js/firebase-config.js.
+   NOTE: Email/Password sign-in must be enabled in the Firebase
+   console for this project, or login will show that message.
    ============================================================ */
-
-const USERS_KEY = "messenger_users";
-const SESSION_KEY = "messenger_session";
-const RESET_KEY = "messenger_reset";
-
-/* ---------- tiny storage helpers ---------- */
-function loadUsers() {
-  try { return JSON.parse(localStorage.getItem(USERS_KEY)) || []; }
-  catch (e) { return []; }
-}
-function saveUsers(users) {
-  localStorage.setItem(USERS_KEY, JSON.stringify(users));
-}
-function findUser(email) {
-  return loadUsers().find(u => u.email.toLowerCase() === email.toLowerCase());
-}
-
-/* Demo-only hash (NOT secure — Firebase Auth replaces it later). */
-function hashPassword(pw) {
-  let h = 0;
-  for (let i = 0; i < pw.length; i++) {
-    h = ((h << 5) - h + pw.charCodeAt(i)) | 0;
-  }
-  return "demo-" + Math.abs(h) + "-" + pw.length;
-}
-
-/* ---------- session ---------- */
-function setSession(email) { localStorage.setItem(SESSION_KEY, email); }
-function getSession() { return localStorage.getItem(SESSION_KEY); }
-function clearSession() { localStorage.removeItem(SESSION_KEY); }
-function getCurrentUser() {
-  const email = getSession();
-  return email ? findUser(email) : null;
-}
 
 /* ---------- toast ---------- */
 function showToast(msg) {
@@ -54,18 +21,11 @@ function showToast(msg) {
   showToast._t = setTimeout(() => toast.classList.add("hidden"), 3000);
 }
 
-/* ---------- demo account ---------- */
-function seedDemoUser() {
-  const users = loadUsers();
-  if (!findUser("demo@messenger.app")) {
-    users.push({
-      name: "Demo User",
-      email: "demo@messenger.app",
-      passHash: hashPassword("demo123"),
-      createdAt: new Date().toISOString()
-    });
-    saveUsers(users);
-  }
+/* ---------- current user (from Firebase Auth) ---------- */
+function getCurrentUser() {
+  const u = firebase.auth().currentUser;
+  if (!u) return null;
+  return { name: u.displayName || u.email.split("@")[0], email: u.email, uid: u.uid };
 }
 
 /* ---------- password strength ---------- */
@@ -103,8 +63,24 @@ function showAuthForm(which) {
   document.getElementById("tabSignup").classList.toggle("active", which === "signup");
 }
 
-/* ---------- sign up ---------- */
-function handleSignup(e) {
+/* ---------- Firebase error messages in Bengali ---------- */
+function firebaseAuthErrorMessage(code) {
+  switch (code) {
+    case "auth/email-already-in-use": return "এই ইমেইল দিয়ে অ্যাকাউন্ট আগেই আছে — লগইন করুন।";
+    case "auth/invalid-email": return "সঠিক ইমেইল দিন।";
+    case "auth/weak-password": return "পাসওয়ার্ড আরও শক্ত করুন (কমপক্ষে ৬ অক্ষর)।";
+    case "auth/user-not-found":
+    case "auth/wrong-password":
+    case "auth/invalid-credential": return "ইমেইল বা পাসওয়ার্ড ভুল হয়েছে।";
+    case "auth/operation-not-allowed": return "Firebase console-এ Email/Password লগইন চালু করা নেই — ওখান থেকে চালু করতে হবে।";
+    case "auth/too-many-requests": return "অনেকবার চেষ্টা হয়েছে — কিছুক্ষণ পরে আবার চেষ্টা করুন।";
+    case "auth/network-request-failed": return "ইন্টারনেট সংযোগে সমস্যা — আবার চেষ্টা করুন।";
+    default: return "কিছু একটা ভুল হয়েছে — আবার চেষ্টা করুন।";
+  }
+}
+
+/* ---------- sign up (Firebase Auth) ---------- */
+async function handleSignup(e) {
   e.preventDefault();
   const name = document.getElementById("signupName").value.trim();
   const email = document.getElementById("signupEmail").value.trim();
@@ -115,80 +91,80 @@ function handleSignup(e) {
   if (!name || !email || !pw) { err.textContent = "সব ঘর পূরণ করুন।"; return; }
   if (pw.length < 6) { err.textContent = "পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে।"; return; }
   if (pw !== confirm) { err.textContent = "দুই পাসওয়ার্ড মিলছে না।"; return; }
-  if (findUser(email)) { err.textContent = "এই ইমেইল দিয়ে অ্যাকাউন্ট আগেই আছে — লগইন করুন।"; return; }
-
-  const users = loadUsers();
-  users.push({ name, email, passHash: hashPassword(pw), createdAt: new Date().toISOString() });
-  saveUsers(users);
-  setSession(email);
-  showToast("অ্যাকাউন্ট তৈরি হয়েছে, স্বাগতম " + name + "!");
-  enterApp();
+  err.textContent = "";
+  try {
+    const cred = await firebase.auth().createUserWithEmailAndPassword(email, pw);
+    await cred.user.updateProfile({ displayName: name });
+    showToast("অ্যাকাউন্ট তৈরি হয়েছে, স্বাগতম " + name + "!");
+    enterApp();
+  } catch (error) {
+    err.textContent = firebaseAuthErrorMessage(error.code);
+  }
 }
 
-/* ---------- login ---------- */
-function handleLogin(e) {
+/* ---------- login (Firebase Auth) ---------- */
+async function handleLogin(e) {
   e.preventDefault();
   const email = document.getElementById("loginEmail").value.trim();
   const pw = document.getElementById("loginPassword").value;
   const err = document.getElementById("loginError");
-  const user = findUser(email);
-
-  if (!user || user.passHash !== hashPassword(pw)) {
-    err.textContent = "ইমেইল বা পাসওয়ার্ড ভুল হয়েছে।";
-    return;
-  }
   err.textContent = "";
-  setSession(email);
-  showToast("স্বাগতম, " + user.name + "!");
-  enterApp();
+  try {
+    await firebase.auth().signInWithEmailAndPassword(email, pw);
+    const u = getCurrentUser();
+    showToast("স্বাগতম, " + (u ? u.name : "") + "!");
+    enterApp();
+  } catch (error) {
+    err.textContent = firebaseAuthErrorMessage(error.code);
+  }
 }
 
-function demoLogin() {
-  seedDemoUser();
-  setSession("demo@messenger.app");
+/* ---------- demo login (Firebase) ---------- */
+async function demoLogin() {
+  try {
+    await firebase.auth().signInWithEmailAndPassword("demo@messenger.app", "demo123");
+  } catch (error) {
+    if (error.code === "auth/user-not-found" || error.code === "auth/invalid-credential") {
+      try {
+        const cred = await firebase.auth().createUserWithEmailAndPassword("demo@messenger.app", "demo123");
+        await cred.user.updateProfile({ displayName: "Demo User" });
+      } catch (e2) {
+        showToast(firebaseAuthErrorMessage(e2.code));
+        return;
+      }
+    } else {
+      showToast(firebaseAuthErrorMessage(error.code));
+      return;
+    }
+  }
   showToast("ডেমো অ্যাকাউন্টে ঢোকা হয়েছে।");
   enterApp();
 }
 
-/* ---------- forgot password (6-digit code) ---------- */
-function sendResetCode() {
+/* ---------- forgot password (Firebase reset email) ---------- */
+async function sendResetCode() {
   const email = document.getElementById("forgotEmail").value.trim();
   const err = document.getElementById("forgotError");
-  if (!findUser(email)) { err.textContent = "এই ইমেইলে কোনো অ্যাকাউন্ট নেই।"; return; }
-  const code = String(Math.floor(100000 + Math.random() * 900000));
-  const data = { email, code, expiresAt: Date.now() + 10 * 60 * 1000 };
-  localStorage.setItem(RESET_KEY, JSON.stringify(data));
-  document.getElementById("resetStep").classList.remove("hidden");
-  document.getElementById("resetCodeHint").textContent =
-    "ডেমো কোড (আসল অ্যাপে কোড ইমেইলে যাবে): " + code;
-  showToast("৬ সংখ্যার কোড পাঠানো হয়েছে।");
+  if (!email) { err.textContent = "ইমেইল দিন।"; return; }
+  err.textContent = "";
+  try {
+    await firebase.auth().sendPasswordResetEmail(email);
+    showToast("পাসওয়ার্ড বদলের লিংক ইমেইলে পাঠানো হয়েছে।");
+    showAuthForm("login");
+  } catch (error) {
+    err.textContent = firebaseAuthErrorMessage(error.code);
+  }
 }
-
+/* The old 6-digit code step is not used anymore — Firebase
+   sends a reset link to the email instead. */
 function resetPassword() {
-  const code = document.getElementById("resetCode").value.trim();
-  const newPw = document.getElementById("resetPassword").value;
-  const err = document.getElementById("forgotError");
-  let data = null;
-  try { data = JSON.parse(localStorage.getItem(RESET_KEY)); } catch (e) {}
-
-  if (!data) { err.textContent = "আগে কোড পাঠান।"; return; }
-  if (Date.now() > data.expiresAt) { err.textContent = "কোডের মেয়াদ শেষ — আবার কোড পাঠান।"; return; }
-  if (code !== data.code) { err.textContent = "কোডটি ভুল হয়েছে।"; return; }
-  if (!newPw || newPw.length < 6) { err.textContent = "নতুন পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে।"; return; }
-
-  const users = loadUsers();
-  const user = users.find(u => u.email.toLowerCase() === data.email.toLowerCase());
-  if (!user) { err.textContent = "অ্যাকাউন্ট পাওয়া যায়নি।"; return; }
-  user.passHash = hashPassword(newPw);
-  saveUsers(users);
-  localStorage.removeItem(RESET_KEY);
-  showToast("পাসওয়ার্ড বদলে গেছে — এখন লগইন করুন।");
-  showAuthForm("login");
+  document.getElementById("forgotError").textContent =
+    "Firebase এখন ইমেইলে রিসেট লিংক পাঠায় — কোড লাগে না।";
 }
 
 /* ---------- logout ---------- */
-function logout() {
-  clearSession();
+async function logout() {
+  try { await firebase.auth().signOut(); } catch (e) {}
   document.getElementById("appScreen").classList.add("hidden");
   document.getElementById("authScreen").classList.remove("hidden");
   showAuthForm("login");
@@ -197,7 +173,10 @@ function logout() {
 
 /* ---------- wire up ---------- */
 document.addEventListener("DOMContentLoaded", () => {
-  seedDemoUser();
+  // Firebase session: if already signed in, go straight into the app.
+  firebase.auth().onAuthStateChanged((user) => {
+    if (user) enterApp();
+  });
 
   document.getElementById("tabLogin").addEventListener("click", () => showAuthForm("login"));
   document.getElementById("tabSignup").addEventListener("click", () => showAuthForm("signup"));
@@ -210,7 +189,4 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("sendCodeBtn").addEventListener("click", sendResetCode);
   document.getElementById("resetPasswordBtn").addEventListener("click", resetPassword);
   document.getElementById("logoutBtn").addEventListener("click", logout);
-
-  // If already logged in, go straight into the app.
-  if (getCurrentUser()) enterApp();
 });
